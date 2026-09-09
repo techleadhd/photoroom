@@ -1,0 +1,5 @@
+numpy>=1.26,<3
+opencv-python-headless>=4.9,<6
+tifffile>=2024.1
+imagecodecs>=2024.1
+Pillow>=10
