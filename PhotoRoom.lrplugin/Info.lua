@@ -6,5 +6,6 @@ return {
     VERSION = { major = 0, minor = 2, revision = 0 },
     LrLibraryMenuItems = {
         { title = 'PhotoRoom: run matching bridge', file = 'Bridge.lua' },
+        { title = 'PhotoRoom: stop matching bridge', file = 'StopBridge.lua' },
     },
 }

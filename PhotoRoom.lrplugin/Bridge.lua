@@ -93,6 +93,8 @@ LrTasks.startAsyncTask(function()
             LrDialogs.message('PhotoRoom', 'PhotoRoom bridge is already running. If Lightroom crashed, remove match-session/bridge-running and start the plug-in again.', 'critical')
             return
         end
+        local stopRequest = LrPathUtils.child(root, 'stop-bridge')
+        LrFileUtils.delete(stopRequest)
         write(lock, 'running')
         local orientationTurns = {AB=0,DA=1,CD=2,BC=3}
         local orientationNames = {[0]='AB',[1]='DA',[2]='CD',[3]='BC'}
@@ -129,7 +131,8 @@ LrTasks.startAsyncTask(function()
                 local ok, err=LrTasks.pcall(function() restore(state) end)
                 if not ok then stage('restoreFailed:'..tostring(err)) end
             end
-            os.remove(lock)
+            LrFileUtils.delete(stopRequest)
+            LrFileUtils.delete(lock)
             if originalTarget then LrTasks.pcall(function() catalog:setSelectedPhotos(originalTarget, originalSelection) end) end
         end)
         local function handle(job)
@@ -215,7 +218,7 @@ LrTasks.startAsyncTask(function()
             stage('getRenderedDevelopSettings')
             return { path = path, settings = photo:getDevelopSettings() }
         end
-        while not progress:isCanceled() do
+        while not progress:isCanceled() and not read(stopRequest) do
             local txt = read(LrPathUtils.child(root, 'request.json'))
             if txt then
                 local decoded, job = pcall(Json.decode, txt)
@@ -250,7 +253,7 @@ LrTasks.startAsyncTask(function()
             end
             LrTasks.sleep(0.2)
         end
-        if progress:isCanceled() then write(LrPathUtils.child(root, 'cancelled'), config and config.run_id or '') end
+        if progress:isCanceled() or read(stopRequest) then write(LrPathUtils.child(root, 'cancelled'), config and config.run_id or '') end
         progress:done()
     end)
 end)

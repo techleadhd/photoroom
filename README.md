@@ -49,17 +49,38 @@ open and avoid editing photos while matching is running.
 
 ## 3. Run PhotoRoom
 
-Open Terminal, go to your PhotoRoom project folder, and run this command with
-your two folder paths:
+Open Terminal and go to your PhotoRoom project folder. Replace the example
+paths below with your own folder paths. No separate installation commands or
+environment activation are needed.
 
 ```bash
 cd "/path/to/PhotoRoom"
+```
+
+**First, check one photo without making changes.** This previews the filename
+pairing; it does not evaluate the match or require Lightroom.
+
+```bash
+python3 photoroom.py --orig "/path/to/orig" --edit "/path/to/edit" --dry-run --limit 1
+```
+
+**Next, match one photo.** Start the Lightroom bridge if it is not already
+running, then run:
+
+```bash
+python3 photoroom.py --orig "/path/to/orig" --edit "/path/to/edit" --limit 1
+```
+
+Review that photo in Lightroom and its comparison preview before continuing.
+
+**Then, match the full batch:**
+
+```bash
 python3 photoroom.py --orig "/path/to/orig" --edit "/path/to/edit"
 ```
 
-No separate installation commands or environment activation are needed.
-PhotoRoom skips completed photos, then shows matching progress and estimated
-time remaining.
+PhotoRoom skips completed photos, including the one you just tested, then shows
+matching progress and estimated time remaining.
 
 ## 4. Review the results
 
@@ -99,7 +120,9 @@ Add an option to the command when needed:
 | `--virtual-copies` | Apply matches to virtual copies in Lightroom |
 | `--prefer raw` | Use the RAW when a RAW and JPEG share the same name |
 
-To stop the Lightroom plug-in, cancel its progress indicator. If you move the
-PhotoRoom folder, stop the plug-in first and add it again from its new location.
+To stop the plug-in, choose **Library > Plug-in Extras > PhotoRoom: stop matching
+bridge**. It exits after the current operation finishes and keeps completed matches.
+If you move the PhotoRoom folder, stop the plug-in first and add it again from
+its new location.
 
 MIT licensed. See [LICENSE](LICENSE).

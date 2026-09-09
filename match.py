@@ -492,7 +492,7 @@ def main(argv=None):
     if args.dry_run:
         for issue in issues: print(f'SKIP {display_path(issue["target"],args.edit)}: {issue["reason"]}',flush=True)
         print(f'{len(pairs)} pairs ready; {len(issues)} pairing issues.',flush=True)
-        for pair in pairs: print(f'{pair.source} -> {pair.target.with_suffix(".xmp")} (reference: {pair.target})')
+        for pair in pairs[:args.limit]: print(f'{pair.source} -> {pair.target.with_suffix(".xmp")} (reference: {pair.target})')
         return 2 if issues else 0
     if not pairs and not issues:
         print('No matching photos found.',flush=True)

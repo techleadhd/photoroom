@@ -27,6 +27,9 @@ class LuaTests(unittest.TestCase):
         for text in ['os.execute("rm")','{"test": [1,}','{"x":1} trailing']:
             with self.assertRaises(Exception): codec.decode(text)
 
+    def test_stop_menu_exits_bridge_and_removes_lock(self):
+        self.bridge_case(menu_stop=True)
+
     def test_bridge_virtual_copy_render(self):
         self.bridge_case()
 
@@ -82,7 +85,7 @@ class LuaTests(unittest.TestCase):
             for _,name in ipairs(forbidden) do assert(safe[name]==nil,name) end
         ''')
 
-    def bridge_case(self,fail_export=False,virtual=True,rotate=0,commit=False,abort=False,repeat_run=False,plugin_first=False):
+    def bridge_case(self,fail_export=False,virtual=True,rotate=0,commit=False,abort=False,repeat_run=False,plugin_first=False,menu_stop=False):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)/'match-session';root.mkdir()
             jobs=[{'id':'hello','action':'hello'},
@@ -107,6 +110,8 @@ class LuaTests(unittest.TestCase):
             def next_job():
                 if current[0]+1 < len(jobs):
                     current[0]+=1; publish(jobs[current[0]])
+                elif menu_stop:
+                    lua.execute((PLUGIN/'StopBridge.lua').read_text())
                 else: g.CANCELLED=True
             lua=LuaRuntime(unpack_returned_tuples=True)
             g=lua.globals();g.ROOT=str(root);g.ROOT_PARENT=str(Path(d));g.PLUGIN_PATH=str(PLUGIN);g.next_job=next_job
@@ -163,7 +168,7 @@ class LuaTests(unittest.TestCase):
                 end}
                 local modules={
                     LrApplication={activeCatalog=function()return catalog end},
-                    LrDialogs={runOpenPanel=function()error('Must not prompt for a folder')end,message=function(a,b)error(b)end},
+                    LrDialogs={runOpenPanel=function()error('Must not prompt for a folder')end,message=function(a,b,kind)if kind~='info' then error(b) end end},
                     LrTasks=tasks,
                     LrPathUtils={child=function(a,b)return a..'/'..b end,parent=function(p)assert(p==PLUGIN_PATH);return ROOT_PARENT end},
                     LrFileUtils={createAllDirectories=function(p)mkdir(p)end,
@@ -174,6 +179,8 @@ class LuaTests(unittest.TestCase):
                 }
                 function import(name)assert(modules[name],name);return modules[name]end
             ''')
+            # Lightroom omits os.remove; SDK mocks above retain their host functions.
+            lua.execute('os.remove = nil')
             lua.execute((PLUGIN/'Bridge.lua').read_text())
             self.assertEqual(g.copies,1 if virtual else None)
             self.assertEqual(g.applied,2 if repeat_run else (1 if virtual or (commit and not abort) else 2))
@@ -182,6 +189,8 @@ class LuaTests(unittest.TestCase):
             self.assertEqual(g.MASTER.settings.Exposure2012,2.5 if repeat_run else (1.25 if commit and not abort and not virtual else 0))
             if virtual:self.assertEqual(g.COPY.settings.orientation,desired)
             self.assertFalse((root/'bridge-running').exists())
+            self.assertFalse((root/'stop-bridge').exists())
+            self.assertEqual((root/'cancelled').read_text(), 'second' if repeat_run else 'test')
             responses=[json.loads((root/f'response-{j["id"]}.json').read_text()) for j in jobs]
             hello=next(r for r in responses if r['id']=='hello')
             self.assertTrue(hello['ready'])
