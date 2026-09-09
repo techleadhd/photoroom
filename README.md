@@ -8,6 +8,8 @@ It matches temperature, tint, exposure, contrast, highlights, shadows, whites,
 blacks, crop, and rotation. Other settings stay unchanged. Matches are approximate;
 review them before moving on from Apple Photos.
 
+<img width="2336" height="1045" alt="photoroom2" src="https://github.com/user-attachments/assets/9321a1af-2b0e-434a-a950-a8fa62930697" />
+
 ## 1. Export from Apple Photos
 
 Create two folders, `orig` and `edit`. Start with a few photos to try the workflow.
