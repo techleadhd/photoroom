@@ -1,4 +1,4 @@
-# PhotoRoom
+# PhotoRoom - Apple Photos to Lightroom converter
 
 Bring the look of your Apple Photos edits into **Lightroom Classic**, while
 keeping your originals editable. PhotoRoom compares your edited photos with
