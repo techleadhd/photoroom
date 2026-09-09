@@ -127,4 +127,5 @@ bridge**. It exits after the current operation finishes and keeps completed matc
 If you move the PhotoRoom folder, stop the plug-in first and add it again from
 its new location.
 
-MIT licensed. See [LICENSE](LICENSE).
+Free for personal, noncommercial use only. Business or professional use requires
+written permission. See [LICENSE](LICENSE).
