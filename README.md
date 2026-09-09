@@ -19,8 +19,8 @@ Select the same photos for both exports:
 - **Originals:** choose **File > Export > Export Unmodified Original** and save
   to `orig`.
 - **Edited versions:** choose **File > Export > Export Photos**, select **TIFF**,
-  enable **16-bit**, choose **Full Size** and an RGB color profile such as
-  **sRGB**, and save to `edit`.
+  enable **16-bit**, choose **Full Size** and **Display P3**, and save to `edit`.
+  Keep the color profile embedded. sRGB also works if P3 is unavailable.
 
 Use the original filenames for both exports. Names must match apart from the
 extension; if you use subfolders, their paths must match too:
@@ -35,10 +35,22 @@ for help. PhotoRoom matches photo edits; it does not migrate albums or videos.
 
 ## 2. Set up Lightroom
 
-You’ll need **macOS**, **Lightroom Classic 12+**, and **Python 3.10+**.
-The launcher sets up its Python dependencies automatically.
-[Homebrew](https://brew.sh) is needed only if LittleCMS, the color-processing
-library, is missing.
+Requires **macOS** and **Lightroom Classic 12+**.
+
+**First-time setup:** open Terminal (**Command–Space**, type **Terminal**, press
+Return). If you don’t have Homebrew, install it using the instructions at
+[brew.sh](https://brew.sh), including the installer’s **Next steps** commands.
+Then run:
+
+```bash
+brew install python little-cms2
+```
+
+This installs Python and the color-processing library. Skip this step if you
+already have Python 3.10+ and LittleCMS. PhotoRoom handles its remaining
+dependencies automatically; no environment activation is needed.
+
+**In Lightroom:**
 
 1. Import the photos in `orig` into Lightroom using **Add**, so they stay in
    that folder.
@@ -51,9 +63,8 @@ open and avoid editing photos while matching is running.
 
 ## 3. Run PhotoRoom
 
-Open Terminal and go to your PhotoRoom project folder. Replace the example
-paths below with your own folder paths. No separate installation commands or
-environment activation are needed.
+In Terminal, go to your PhotoRoom folder. Replace the example paths below with
+your own folder paths:
 
 ```bash
 cd "/path/to/PhotoRoom"
