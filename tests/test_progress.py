@@ -35,7 +35,7 @@ class ProgressTests(unittest.TestCase):
                     assert 'SKIP' not in self_output
                     assert events == []
                     events.append('hello')
-                    return {'ready':True,'bridge_version':'0.2.0'}
+                    return {'ready':True,'bridge_version':'0.3.0'}
                 def stop(self): events.append('stop')
             def process(pair,args,bridge,cm,progress=None):
                 self.assertEqual(sum(e.startswith('check ') for e in events),len(pairs))
@@ -67,6 +67,22 @@ class ProgressTests(unittest.TestCase):
             self.assertIn('Settings: edit/ready-a.xmp',summary)
             self.assertIn('Passed: 3\nWarnings: 0\nFailed: 0\nSkipped: 2',text)
 
+    def test_plugin_cancellation_stops_batch_and_cleans_heartbeat(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);orig=root/'orig';edit=root/'edit'
+            orig.mkdir();edit.mkdir()
+            pairs=[match.Pair(orig/f'{i}.JPG',edit/f'{i}.tiff') for i in range(2)]
+            with patch('match.discover',return_value=(pairs,[])), \
+                 patch('match.match_one',side_effect=match.MatchingCancelled('Matching cancelled in Lightroom')) as process, \
+                 patch('match.Bridge') as bridge,patch('match.ColorManager'), \
+                 patch('match.SESSION_DIR',root/'work'),contextlib.redirect_stdout(io.StringIO()):
+                bridge.return_value.request.return_value={'ready':True,'bridge_version':'0.3.0'}
+                status=match.main(['--orig',str(orig),'--edit',str(edit)])
+            self.assertEqual(status,2)
+            process.assert_called_once()
+            bridge.return_value.stop.assert_called_once()
+            self.assertFalse((root/'work'/'python-heartbeat.json').exists())
+
     def test_connection_timeout_does_not_check_or_skip_files(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);orig=root/'orig';edit=root/'edit'
@@ -96,7 +112,7 @@ class ProgressTests(unittest.TestCase):
             with patch('match.discover',return_value=([pair],[])),patch('match.match_one') as process, \
                  patch('match.Bridge') as bridge,patch('match.ColorManager'), \
                  patch('match.SESSION_DIR',root/'work'),contextlib.redirect_stdout(io.StringIO()):
-                bridge.return_value.request.return_value={'ready':True,'bridge_version':'0.2.0'}
+                bridge.return_value.request.return_value={'ready':True,'bridge_version':'0.3.0'}
                 match.main(['--orig',str(orig),'--edit',str(edit)])
             bridge.return_value.request.assert_called_once_with('hello')
             process.assert_not_called()
@@ -111,7 +127,7 @@ class ProgressTests(unittest.TestCase):
             with patch('match.discover',return_value=(pairs,[])),patch('match.match_one',return_value=report) as process, \
                  patch('match.Bridge') as bridge,patch('match.ColorManager'),patch('match.SESSION_DIR',root/'work'), \
                  contextlib.redirect_stdout(io.StringIO()):
-                bridge.return_value.request.return_value={'ready':True,'bridge_version':'0.2.0'}
+                bridge.return_value.request.return_value={'ready':True,'bridge_version':'0.3.0'}
                 match.main(['--orig',str(orig),'--edit',str(edit),'--limit','1'])
             process.assert_called_once()
             self.assertEqual(process.call_args.args[0].source,pairs[1].source)

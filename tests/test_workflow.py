@@ -26,11 +26,11 @@ class CatalogBridge:
 
     def request(self,action,source=None,settings=None,edge=768):
         self.actions.append(action)
-        if action=='hello':return {'ready':True,'bridge_version':'0.2.0'}
+        if action=='hello':return {'ready':True,'bridge_version':'0.3.0'}
         if action=='abort':
             self.renderer.settings=copy.deepcopy(self.initial);self.committed=False
             return {'restored':True}
-        if action=='begin':return {'settings':copy.deepcopy(self.renderer.settings),'bridge_version':'0.2.0'}
+        if action=='begin':return {'settings':copy.deepcopy(self.renderer.settings),'bridge_version':'0.3.0'}
         if action=='orient':return {'settings':self.renderer.orient(settings['quarter_turns_ccw'])}
         if action=='commit':
             if self.fail_commit:raise RuntimeError('Catalog commit failed')

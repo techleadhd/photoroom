@@ -186,12 +186,7 @@ class Parameter:
 
 
 def parameters(settings):
-    result = [Parameter('Exposure2012', -5, 5, .5, False),
-              Parameter('Contrast2012', -100,100,25),
-              Parameter('Highlights2012', -100,100,30),
-              Parameter('Shadows2012', -100,100,30),
-              Parameter('Whites2012', -100,100,20),
-              Parameter('Blacks2012', -100,100,20)]
+    result = []
     # SDK representation differs for raw and rendered originals.
     if float(settings.get('Temperature', 0)) > 1000:
         result += [Parameter('Temperature', 20, 500, 20, False, True), Parameter('Tint',-150,150,12)]
@@ -199,6 +194,13 @@ def parameters(settings):
         result += [Parameter('IncrementalTemperature',-100,100,12), Parameter('IncrementalTint',-100,100,12)]
     elif 'Temperature' in settings:
         result += [Parameter('Temperature',-100,100,12), Parameter('Tint',-100,100,12)]
+    # Each pass uses this order; accepted changes carry into the next control.
+    result += [Parameter('Exposure2012', -5, 5, .5, False),
+               Parameter('Highlights2012', -100,100,30),
+               Parameter('Shadows2012', -100,100,30),
+               Parameter('Contrast2012', -100,100,25),
+               Parameter('Whites2012', -100,100,20),
+               Parameter('Blacks2012', -100,100,20)]
     return result
 
 

@@ -22,6 +22,12 @@ Select the same photos for both exports:
   enable **16-bit**, choose **Full Size** and **Display P3**, and save to `edit`.
   Keep the color profile embedded. sRGB also works if P3 is unavailable.
 
+**Export IPTC as XMP** is optional: enable it if you want to preserve metadata
+and keywords added in Apple Photos. Apple creates extra `.xmp` files in `orig`;
+PhotoRoom leaves them alone and does not use them for matching or import their
+metadata into Lightroom. Leave it off if you only need to match the photo edits
+and want no sidecars in `orig`.
+
 Use the original filenames for both exports. Names must match apart from the
 extension; if you use subfolders, their paths must match too:
 
@@ -56,10 +62,12 @@ dependencies automatically; no environment activation is needed.
    that folder.
 2. Open **File > Plug-in Manager**, click **Add**, and select
    **`PhotoRoom.lrplugin`** inside the PhotoRoom project folder.
-3. Choose **Library > Plug-in Extras > PhotoRoom: run matching bridge**.
+3. Make sure the plug-in is **Enabled**. It connects automatically when you run
+   PhotoRoom—there is no bridge command to start.
 
-The plug-in connects automatically and stays ready for later runs. Keep Lightroom
-open and avoid editing photos while matching is running.
+Keep Lightroom open and avoid editing photos while matching is running.
+If updating an existing installation, reload the plug-in in Plug-in Manager
+to activate the automatic listener (version 0.3.0).
 
 ## 3. Run PhotoRoom
 
@@ -77,8 +85,7 @@ pairing; it does not evaluate the match or require Lightroom.
 python3 photoroom.py --orig "/path/to/orig" --edit "/path/to/edit" --dry-run --limit 1
 ```
 
-**Next, match one photo.** Start the Lightroom bridge if it is not already
-running, then run:
+**Next, match one photo.** With Lightroom open and the plug-in enabled, run:
 
 ```bash
 python3 photoroom.py --orig "/path/to/orig" --edit "/path/to/edit" --limit 1
@@ -133,10 +140,29 @@ Add an option to the command when needed:
 | `--virtual-copies` | Apply matches to virtual copies in Lightroom |
 | `--prefer raw` | Use the RAW when a RAW and JPEG share the same name |
 
-To stop the plug-in, choose **Library > Plug-in Extras > PhotoRoom: stop matching
-bridge**. It exits after the current operation finishes and keeps completed matches.
-If you move the PhotoRoom folder, stop the plug-in first and add it again from
-its new location.
+Matching stops automatically when Python finishes. If Python crashes, the plug-in
+cleans up after about 30 seconds, once any current Lightroom operation finishes.
+Completed matches are kept; unfinished edits on originals are restored.
+
+## Wrapping up
+**After migration, disable PhotoRoom in File > Plug-in Manager.** While enabled,
+it checks for a new run every two seconds without showing an idle progress bar.
+You can also stop a Python run with **Ctrl+C** in Terminal.
+
+For manual control, use **Library > Plug-in Extras**:
+
+- **PhotoRoom: show listener status** tells you whether it is ready, matching,
+  starting, cleaning up, or stopping/stopped.
+- **PhotoRoom: start listener** starts it if needed and shows its current status.
+- **PhotoRoom: stop listener** requests a stop and confirms it. It may need to
+  finish the current operation first; completed matches are kept.
+
+After manually stopping the listener, choose **start listener** before the next
+Python run, or disable and re-enable the plug-in. These commands are optional;
+normal runs start and finish automatically.
+
+If you move the PhotoRoom folder, stop Python and disable the plug-in first,
+then add the plug-in again from its new location.
 
 Free for personal, noncommercial use only. Business or professional use requires
 written permission. See [LICENSE](LICENSE).

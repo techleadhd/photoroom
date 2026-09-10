@@ -17,6 +17,7 @@ import shutil
 import sys
 import tempfile
 import time
+import threading
 import unicodedata
 import uuid
 import xml.etree.ElementTree as ET
@@ -189,6 +190,39 @@ class SessionLock:
         self.file.close()
 
 
+class PythonHeartbeat:
+    """Keep the listener informed even while the main thread waits for Lightroom."""
+    def __init__(self, directory, run_id, interval=2):
+        self.path = directory/'python-heartbeat.json'
+        self.run_id, self.interval = run_id, interval
+        self.stopping = threading.Event()
+
+    def pulse(self):
+        atomic_write(self.path,json_bytes({'run_id':self.run_id,'time':time.time()}),overwrite=True)
+
+    def __enter__(self):
+        self.pulse()
+        self.thread = threading.Thread(target=self.run,name='PhotoRoom heartbeat',daemon=True)
+        self.thread.start()
+        return self
+
+    def run(self):
+        while not self.stopping.wait(self.interval):
+            try: self.pulse()
+            except OSError:
+                # The listener expires the last successful pulse if storage fails.
+                continue
+
+    def __exit__(self, *unused):
+        self.stopping.set()
+        self.thread.join()
+        self.path.unlink(missing_ok=True)
+
+
+class MatchingCancelled(RuntimeError):
+    pass
+
+
 class Bridge:
     def __init__(self, directory, timeout=300, run_id=None, keep_responses=False):
         self.directory = directory
@@ -210,7 +244,7 @@ class Bridge:
         deadline = time.monotonic()+self.timeout
         while not response.exists():
             if (self.directory/'cancelled').exists() and (self.directory/'cancelled').read_text() == self.run_id:
-                raise RuntimeError('Matching cancelled in Lightroom')
+                raise MatchingCancelled('Matching cancelled in Lightroom')
             if time.monotonic() >= deadline:
                 raise TimeoutError('Lightroom bridge timed out. Check the plug-in, then start a new run.')
             time.sleep(.15)
@@ -287,8 +321,8 @@ def display_path(path, root):
 
 
 def require_bridge_version(response):
-    if response.get('bridge_version') != '0.2.0':
-        raise RuntimeError('PhotoRoom plug-in 0.2.0 is required. Reload the updated plug-in and start a new run.')
+    if response.get('bridge_version') != '0.3.0':
+        raise RuntimeError('PhotoRoom plug-in 0.3.0 is required. Reload the updated plug-in and start a new run.')
 
 
 def duration(seconds):
@@ -506,11 +540,16 @@ def main(argv=None):
 
 
 def run_session(args, pairs, issues):
-    directory = SESSION_DIR
     run_id = uuid.uuid4().hex
-    atomic_write(directory/'session.json',json_bytes({'protocol':2,'run_id':run_id,
+    with PythonHeartbeat(SESSION_DIR,run_id):
+        return _run_session(args,pairs,issues,run_id)
+
+
+def _run_session(args, pairs, issues, run_id):
+    directory = SESSION_DIR
+    atomic_write(directory/'session.json',json_bytes({'protocol':3,'run_id':run_id,
                  'orig':str(args.orig),'edit':str(args.edit),'virtual_copies':args.virtual_copies}),overwrite=True)
-    print('\nIn Lightroom Classic, start Library > Plug-in Extras > PhotoRoom: run matching bridge.\n'
+    print('\nKeep Lightroom Classic open with the PhotoRoom plug-in enabled.\n'
           f'Waiting for Lightroom to connect (up to {args.timeout:g} seconds)...\n',flush=True)
     cm = ColorManager()
     bridge = Bridge(directory,args.timeout,run_id,args.keep_renders)
@@ -558,7 +597,7 @@ def run_session(args, pairs, issues):
             except ExistingOutputError as e:
                 reports.append({'source':str(pair.source),'target':str(pair.target),'status':'skipped','reason':str(e)})
                 print(f'SKIP {pair.source.name}: {e}',flush=True)
-            except (TimeoutError,KeyboardInterrupt): raise
+            except (TimeoutError,KeyboardInterrupt,MatchingCancelled): raise
             except Exception as e:
                 try: bridge.request('abort',pair.source)
                 except Exception as restore_error:

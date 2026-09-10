@@ -8,7 +8,7 @@ local LrFunctionContext = import 'LrFunctionContext'
 local LrProgressScope = import 'LrProgressScope'
 local Json = dofile(LrPathUtils.child(_PLUGIN.path, 'Json.lua'))
 local Develop = dofile(LrPathUtils.child(_PLUGIN.path, 'Develop.lua'))
-local VERSION = '0.2.0'
+local VERSION = '0.3.0'
 
 local function read(path)
     local f = io.open(path, 'rb'); if not f then return nil end
@@ -68,13 +68,21 @@ local function exported(photo, directory, edge, stage)
     error('Lightroom did not produce an export')
 end
 
+-- Lifecycle callbacks and the optional menu command share one listener.
+local previous = _G.photoRoomListener
+if previous and not previous.stopping then return end
+local listener = { stopping = false, status = 'starting' }
+_G.photoRoomListener = listener
 LrTasks.startAsyncTask(function()
+    -- On a quick disable/re-enable, let the previous listener finish restoring.
+    while previous and not previous.finished do LrTasks.sleep(0.2) end
+    local succeeded, failure = LrTasks.pcall(function()
     LrFunctionContext.callWithContext('PhotoRoom', function(context)
         -- The plug-in and Python launcher resolve the same project-relative folder.
         local root = LrPathUtils.child(LrPathUtils.parent(_PLUGIN.path), 'match-session')
         LrFileUtils.createAllDirectories(root)
         local config = nil
-        local progress = LrProgressScope { title = 'PhotoRoom: ready for Python', functionContext = context }
+        local progress = nil
         local catalog = LrApplication.activeCatalog()
         local copies, lastId = {}, nil
         local activeStage = 'idle'
@@ -86,16 +94,19 @@ LrTasks.startAsyncTask(function()
                 action=activeJob and activeJob.action,run_id=config and config.run_id,stage=name}) .. '\n')
             f:close()
         end
-        local originalTarget = catalog:getTargetPhoto()
-        local originalSelection = catalog:getTargetPhotos()
+        local originalTarget, originalSelection = nil, nil
         local lock = LrPathUtils.child(root, 'bridge-running')
-        if read(lock) then
-            LrDialogs.message('PhotoRoom', 'PhotoRoom bridge is already running. If Lightroom crashed, remove match-session/bridge-running and start the plug-in again.', 'critical')
-            return
+        -- A disk marker is informational, never proof that a listener is alive.
+        -- The in-memory guard prevents duplicate tasks; stale crash markers are safe.
+        LrFileUtils.delete(lock)
+        LrFileUtils.delete(LrPathUtils.child(root, 'stop-bridge'))
+        local function pythonAlive(runId)
+            local ok, heartbeat = pcall(Json.decode, read(LrPathUtils.child(root, 'python-heartbeat.json')) or '')
+            if not ok or type(heartbeat) ~= 'table' or heartbeat.run_id ~= runId or
+               type(heartbeat.time) ~= 'number' then return false end
+            local age = os.time() - heartbeat.time
+            return age >= -5 and age < 30
         end
-        local stopRequest = LrPathUtils.child(root, 'stop-bridge')
-        LrFileUtils.delete(stopRequest)
-        write(lock, 'running')
         local orientationTurns = {AB=0,DA=1,CD=2,BC=3}
         local orientationNames = {[0]='AB',[1]='DA',[2]='CD',[3]='BC'}
         local function orientTo(state, desired)
@@ -126,20 +137,34 @@ LrTasks.startAsyncTask(function()
             end
             state.previous=target
         end
-        context:addCleanupHandler(function()
+        local function finishSession(cancelled)
+            listener.status = 'cleaning up'
+            if cancelled and config then
+                write(LrPathUtils.child(root, 'cancelled'), config.run_id)
+            end
             for _, state in pairs(copies) do
                 local ok, err=LrTasks.pcall(function() restore(state) end)
-                if not ok then stage('restoreFailed:'..tostring(err)) end
+                if not ok then
+                    -- Keep other photos and lifecycle cleanup moving if one restore fails.
+                    LrTasks.pcall(function() stage('restoreFailed:'..tostring(err)) end)
+                end
             end
-            LrFileUtils.delete(stopRequest)
+            copies = {}
+            if progress then progress:done(); progress = nil end
             LrFileUtils.delete(lock)
-            if originalTarget then LrTasks.pcall(function() catalog:setSelectedPhotos(originalTarget, originalSelection) end) end
+            if originalTarget then
+                LrTasks.pcall(function() catalog:setSelectedPhotos(originalTarget, originalSelection) end)
+            end
+            originalTarget, originalSelection = nil, nil
+            listener.status = 'ready'
+        end
+        context:addCleanupHandler(function()
+            local ok, err = LrTasks.pcall(function() finishSession(progress ~= nil) end)
+            if not ok then error(err) end
         end)
         local function handle(job)
             if job.action == 'stop' then
-                for _, state in pairs(copies) do restore(state) end
-                copies = {}
-                if originalTarget then catalog:setSelectedPhotos(originalTarget, originalSelection) end
+                finishSession(false)
                 return { stopped = true }
             end
             if job.action == 'hello' then
@@ -218,22 +243,31 @@ LrTasks.startAsyncTask(function()
             stage('getRenderedDevelopSettings')
             return { path = path, settings = photo:getDevelopSettings() }
         end
-        while not progress:isCanceled() and not read(stopRequest) do
+        listener.status = 'ready'
+        while not listener.stopping do
+            if progress and (progress:isCanceled() or not pythonAlive(config.run_id)) then
+                finishSession(true)
+            end
             local txt = read(LrPathUtils.child(root, 'request.json'))
             if txt then
                 local decoded, job = pcall(Json.decode, txt)
                 if decoded and type(job)=='table' and type(job.run_id)=='string' and
                    job.run_id:match('^[a-zA-Z0-9_-]+$') and job.action=='hello' and
-                   (not config or config.run_id ~= job.run_id) then
+                   (not config or config.run_id ~= job.run_id) and pythonAlive(job.run_id) then
                     local text = read(LrPathUtils.child(root,'session.json'))
                     local valid, nextConfig = pcall(Json.decode,text or '')
-                    if valid and type(nextConfig)=='table' and nextConfig.protocol==2 and nextConfig.run_id==job.run_id then
+                    if valid and type(nextConfig)=='table' and nextConfig.protocol==3 and nextConfig.run_id==job.run_id then
                         -- A new run also restores an interrupted previous run.
-                        for _, state in pairs(copies) do restore(state) end
+                        if progress then finishSession(true) end
                         copies, lastId, config = {}, nil, nextConfig
+                        originalTarget = catalog:getTargetPhoto()
+                        originalSelection = catalog:getTargetPhotos()
+                        progress = LrProgressScope { title = 'PhotoRoom: matching', functionContext = context }
+                        write(lock, config.run_id)
+                        listener.status = 'matching'
                     end
                 end
-                if decoded and type(job)=='table' and config and job.run_id==config.run_id and job.id ~= lastId then
+                if decoded and type(job)=='table' and progress and config and job.run_id==config.run_id and job.id ~= lastId then
                     assert(type(job.id) == 'string' and job.id:match('^[a-zA-Z0-9_-]+$'), 'Invalid request ID')
                     lastId = job.id
                     activeJob = job
@@ -248,12 +282,13 @@ LrTasks.startAsyncTask(function()
                     result.id = job.id
                     result.run_id = job.run_id
                     write(LrPathUtils.child(root, 'response-' .. job.id .. '.json'), Json.encode(result))
-                    if job.action == 'stop' then progress:setCaption('Ready for the next PhotoRoom run') end
                 end
             end
-            LrTasks.sleep(0.2)
+            LrTasks.sleep(progress and 0.2 or 2)
         end
-        if progress:isCanceled() or read(stopRequest) then write(LrPathUtils.child(root, 'cancelled'), config and config.run_id or '') end
-        progress:done()
     end)
+    end)
+    listener.finished = true
+    if _G.photoRoomListener == listener then _G.photoRoomListener = nil end
+    if not succeeded then error(failure) end
 end)

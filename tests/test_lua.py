@@ -5,6 +5,7 @@ These are mocked SDK tests, not substitutes for a real Classic smoke test.
 import json
 from pathlib import Path
 import tempfile
+import time
 import unittest
 
 try:
@@ -26,6 +27,48 @@ class LuaTests(unittest.TestCase):
             self.assertEqual(json.loads(encoded),data)
         for text in ['os.execute("rm")','{"test": [1,}','{"x":1} trailing']:
             with self.assertRaises(Exception): codec.decode(text)
+
+    def test_listener_menu_reports_status_and_does_not_start_duplicates(self):
+        lua=LuaRuntime(unpack_returned_tuples=True)
+        lua.execute("""
+            _PLUGIN={path='/plugin'}
+            local modules={
+                LrDialogs={message=function(title,text,kind) MESSAGE=text end},
+                LrPathUtils={child=function(a,b)return a..'/'..b end},
+            }
+            function import(name)return assert(modules[name])end
+            function dofile(path)
+                assert(path=='/plugin/Bridge.lua')
+                STARTS=(STARTS or 0)+1
+                photoRoomListener={status='starting',stopping=false}
+            end
+        """)
+        menu=lua.execute((PLUGIN/'ListenerMenu.lua').read_text())
+        g=lua.globals()
+        menu.status();self.assertTrue(g.MESSAGE.startswith('Stopped.'))
+        menu.stop();self.assertIsNone(g.STARTS)
+        menu.start();self.assertEqual(g.STARTS,1)
+        self.assertTrue(g.MESSAGE.startswith('Starting.'))
+        for state,prefix in [('ready','Ready.'),('matching','Matching.'),('cleaning up','Cleaning up')]:
+            g.photoRoomListener.status=state
+            menu.start()
+            self.assertTrue(g.MESSAGE.startswith(prefix))
+            self.assertEqual(g.STARTS,1)
+        menu.stop();self.assertTrue(g.photoRoomListener.stopping)
+        self.assertTrue(g.MESSAGE.startswith('Stopping.'))
+        menu.start();self.assertEqual(g.STARTS,2)
+
+    def test_expired_heartbeat_restores_unfinished_photo(self):
+        self.bridge_case(virtual=False,rotate=1,crash=True)
+
+    def test_expired_heartbeat_keeps_completed_photo(self):
+        self.bridge_case(virtual=False,commit=True,crash=True)
+
+    def test_disabling_active_plugin_restores_photo(self):
+        self.bridge_case(virtual=False,rotate=1,disable_active=True)
+
+    def test_stale_session_is_not_replayed_on_startup(self):
+        self.bridge_case(stale=True)
 
     def test_stop_menu_exits_bridge_and_removes_lock(self):
         self.bridge_case(menu_stop=True)
@@ -85,9 +128,10 @@ class LuaTests(unittest.TestCase):
             for _,name in ipairs(forbidden) do assert(safe[name]==nil,name) end
         ''')
 
-    def bridge_case(self,fail_export=False,virtual=True,rotate=0,commit=False,abort=False,repeat_run=False,plugin_first=False,menu_stop=False):
+    def bridge_case(self,fail_export=False,virtual=True,rotate=0,commit=False,abort=False,repeat_run=False,plugin_first=False,menu_stop=False,crash=False,stale=False,disable_active=False):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)/'match-session';root.mkdir()
+            (root/'bridge-running').write_text('stale lock from previous Lightroom process')
             jobs=[{'id':'hello','action':'hello'},
                   {'id':'one','action':'begin','source':'/orig/file.CR3'},
                   {'id':'two','action':'render','source':'/orig/file.CR3','settings':{'Exposure2012':1.25}},
@@ -102,17 +146,35 @@ class LuaTests(unittest.TestCase):
                          {'id':'second-render','action':'render','source':'/orig/file.CR3','run_id':'second','settings':{'Exposure2012':2.5}},
                          {'id':'second-commit','action':'commit','source':'/orig/file.CR3','run_id':'second'},
                          {'id':'second-stop','action':'stop','run_id':'second'}]
+            if crash or disable_active: jobs = [j for j in jobs if j['action'] != 'stop']
             def publish(job):
-                (root/'session.json').write_text(json.dumps({'protocol':2,'run_id':job['run_id'],'virtual_copies':virtual}))
+                (root/'session.json').write_text(json.dumps({'protocol':3,'run_id':job['run_id'],'virtual_copies':virtual}))
                 (root/'request.json').write_text(json.dumps(job))
+                (root/'python-heartbeat.json').write_text(json.dumps({'run_id':job['run_id'],'time':time.time()-60 if stale else time.time()}))
             if not plugin_first: publish(jobs[0])
             current=[-1 if plugin_first else 0]
+            expired=[False]
             def next_job():
-                if current[0]+1 < len(jobs):
+                # A second init/enable/menu call must reuse the existing task.
+                lua.execute((PLUGIN/'Bridge.lua').read_text())
+                if stale:
+                    self.assertIsNone(g.PROGRESS)
+                    self.assertIsNone(g.applied)
+                    g.photoRoomListener.stopping=True
+                elif current[0]+1 < len(jobs):
+                    if current[0]>=0 and jobs[current[0]]['action']=='stop':
+                        self.assertFalse((root/'bridge-running').exists())
+                        self.assertEqual(g.OPEN_PROGRESS,0)
                     current[0]+=1; publish(jobs[current[0]])
-                elif menu_stop:
-                    lua.execute((PLUGIN/'StopBridge.lua').read_text())
-                else: g.CANCELLED=True
+                elif crash and not expired[0]:
+                    (root/'python-heartbeat.json').write_text(json.dumps({'run_id':'test','time':time.time()-60}))
+                    expired[0]=True
+                else:
+                    if crash:
+                        self.assertFalse((root/'bridge-running').exists())
+                        self.assertEqual(g.OPEN_PROGRESS,0)
+                        self.assertEqual(g.MASTER.settings.Exposure2012,1.25 if commit else 0)
+                    lua.execute((PLUGIN/('StopListener.lua' if menu_stop else 'StopBridge.lua')).read_text())
             lua=LuaRuntime(unpack_returned_tuples=True)
             g=lua.globals();g.ROOT=str(root);g.ROOT_PARENT=str(Path(d));g.PLUGIN_PATH=str(PLUGIN);g.next_job=next_job
             g.FAIL_EXPORT=fail_export
@@ -168,20 +230,32 @@ class LuaTests(unittest.TestCase):
                 end}
                 local modules={
                     LrApplication={activeCatalog=function()return catalog end},
-                    LrDialogs={runOpenPanel=function()error('Must not prompt for a folder')end,message=function(a,b,kind)if kind~='info' then error(b) end end},
+                    LrDialogs={runOpenPanel=function()error('Must not prompt for a folder')end,message=function(a,b,kind)DIALOGS=(DIALOGS or 0)+1;if kind~='info' then error(b) end end},
                     LrTasks=tasks,
                     LrPathUtils={child=function(a,b)return a..'/'..b end,parent=function(p)assert(p==PLUGIN_PATH);return ROOT_PARENT end},
                     LrFileUtils={createAllDirectories=function(p)mkdir(p)end,
                         exists=function(p)local f=io.open(p,'rb');if f then f:close();return true end;return false end,
                         delete=os.remove,move=os.rename},
                     LrExportSession=session,LrFunctionContext=contextModule,
-                    LrProgressScope=function()return {isCanceled=function()return CANCELLED==true end,setCaption=function()end,done=function()end}end,
+                    LrProgressScope=function()
+                        OPEN_PROGRESS=(OPEN_PROGRESS or 0)+1
+                        PROGRESS={isCanceled=function()return CANCELLED==true end,setCaption=function()end,
+                            done=function()OPEN_PROGRESS=OPEN_PROGRESS-1 end}
+                        return PROGRESS
+                    end,
                 }
                 function import(name)assert(modules[name],name);return modules[name]end
             ''')
             # Lightroom omits os.remove; SDK mocks above retain their host functions.
             lua.execute('os.remove = nil')
             lua.execute((PLUGIN/'Bridge.lua').read_text())
+            self.assertIsNone(g.photoRoomListener)
+            self.assertEqual(g.DIALOGS,1 if menu_stop else None)
+            if stale:
+                self.assertFalse((root/'bridge-running').exists())
+                self.assertFalse(list(root.glob('response-*.json')))
+                return
+            self.assertEqual(g.OPEN_PROGRESS,0)
             self.assertEqual(g.copies,1 if virtual else None)
             self.assertEqual(g.applied,2 if repeat_run else (1 if virtual or (commit and not abort) else 2))
             desired=['AB','DA','CD','BC'][rotate % 4]
@@ -190,11 +264,14 @@ class LuaTests(unittest.TestCase):
             if virtual:self.assertEqual(g.COPY.settings.orientation,desired)
             self.assertFalse((root/'bridge-running').exists())
             self.assertFalse((root/'stop-bridge').exists())
-            self.assertEqual((root/'cancelled').read_text(), 'second' if repeat_run else 'test')
+            if crash or disable_active:
+                self.assertEqual((root/'cancelled').read_text(), 'test')
+            else:
+                self.assertFalse((root/'cancelled').exists())
             responses=[json.loads((root/f'response-{j["id"]}.json').read_text()) for j in jobs]
             hello=next(r for r in responses if r['id']=='hello')
             self.assertTrue(hello['ready'])
-            self.assertEqual(hello['bridge_version'],'0.2.0')
+            self.assertEqual(hello['bridge_version'],'0.3.0')
             render_response=next(r for r in responses if r['id']=='two')
             if fail_export:
                 self.assertEqual(render_response['stage'],'createExportSession')
