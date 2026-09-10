@@ -1,168 +1,125 @@
 # PhotoRoom - Apple Photos to Lightroom converter
 
-Bring the look of your Apple Photos edits into **Lightroom Classic**, while
-keeping your originals editable. PhotoRoom compares your edited photos with
-Lightroom renders and adjusts the Lightroom settings to get a close match.
-
-It matches temperature, tint, exposure, contrast, highlights, shadows, whites,
-blacks, crop, and rotation. Other settings stay unchanged. Matches are approximate;
-review them before moving on from Apple Photos.
+Recreate the look of your Apple Photos edits in **Lightroom Classic**, while
+keeping your originals editable. PhotoRoom matches temperature, tint, exposure,
+highlights, shadows, contrast, whites, blacks, crop, and rotation. Other Develop
+settings stay unchanged. Matches are approximate, so review the results.
 
 <img width="2336" height="1045" alt="photoroom2" src="https://github.com/user-attachments/assets/9321a1af-2b0e-434a-a950-a8fa62930697" />
 
-## 1. Export from Apple Photos
+## 1. Export your photos
 
-Create two folders, `orig` and `edit`. Start with a few photos to try the workflow.
+In Apple Photos, select the photos you want to migrate and export them twice:
 
-Select the same photos for both exports:
+| Export | Settings | Destination |
+| --- | --- | --- |
+| **File > Export > Export Unmodified Original** | Use original filenames | `orig` folder |
+| **File > Export > Export Photos** | Original filenames, TIFF, 16-bit, Full Size, Display P3, embedded color profile | `edit` folder |
 
-- **Originals:** choose **File > Export > Export Unmodified Original** and save
-  to `orig`.
-- **Edited versions:** choose **File > Export > Export Photos**, select **TIFF**,
-  enable **16-bit**, choose **Full Size** and **Display P3**, and save to `edit`.
-  Keep the color profile embedded. sRGB also works if P3 is unavailable.
-
-**Export IPTC as XMP** is optional: enable it if you want to preserve metadata
-and keywords added in Apple Photos. Apple creates extra `.xmp` files in `orig`;
-PhotoRoom leaves them alone and does not use them for matching or import their
-metadata into Lightroom. Leave it off if you only need to match the photo edits
-and want no sidecars in `orig`.
-
-Use the original filenames for both exports. Names must match apart from the
-extension; if you use subfolders, their paths must match too:
+Names and subfolders must match apart from the file extension:
 
 ```text
 orig/IMG_001.ARW
 edit/IMG_001.tiff
 ```
 
-See [Apple’s export instructions](https://support.apple.com/guide/photos/pht6e157c5f/mac)
-for help. PhotoRoom matches photo edits; it does not migrate albums or videos.
+**Export IPTC as XMP** is optional. Enable it to preserve metadata and keywords
+added in Apple Photos; leave it off to avoid extra sidecars in `orig`.
+PhotoRoom ignores these sidecars and does not import their metadata.
 
-## 2. Set up Lightroom
+sRGB also works if Display P3 is unavailable. See [Apple’s export instructions](https://support.apple.com/guide/photos/pht6e157c5f/mac)
+for help. PhotoRoom matches edits; it does not migrate albums or videos.
 
-Requires **macOS** and **Lightroom Classic 12+**.
+## 2. Set up once
 
-**First-time setup:** open Terminal (**Command–Space**, type **Terminal**, press
-Return). If you don’t have Homebrew, install it using the instructions at
+Requires **macOS**, **Lightroom Classic 12+**, and **Python 3.10+**.
+
+Open **Terminal** using Spotlight (**Command–Space**, type **Terminal**, press
+Return). If you don’t have Homebrew, follow the installation instructions at
 [brew.sh](https://brew.sh), including the installer’s **Next steps** commands.
-Then run:
+Then install the tools PhotoRoom needs:
 
 ```bash
 brew install python little-cms2
 ```
 
-This installs Python and the color-processing library. Skip this step if you
-already have Python 3.10+ and LittleCMS. PhotoRoom handles its remaining
-dependencies automatically; no environment activation is needed.
+Skip that command if both are already installed. PhotoRoom sets up its remaining
+dependencies automatically.
 
-**In Lightroom:**
+In Lightroom:
 
-1. Import the photos in `orig` into Lightroom using **Add**, so they stay in
-   that folder.
+1. Import the photos in `orig` using **Add**, so they stay in that folder.
 2. Open **File > Plug-in Manager**, click **Add**, and select
-   **`PhotoRoom.lrplugin`** inside the PhotoRoom project folder.
-3. Make sure the plug-in is **Enabled**. It connects automatically when you run
-   PhotoRoom—there is no bridge command to start.
+   **PhotoRoom.lrplugin** from the PhotoRoom project folder.
+3. Leave the plug-in **Enabled**. It connects automatically when Python runs.
 
-Keep Lightroom open and avoid editing photos while matching is running.
-If updating an existing installation, reload the plug-in in Plug-in Manager
-to activate the automatic listener (version 0.3.0).
+To prevent Lightroom from writing sidecars or metadata into your originals,
+turn off **Catalog Settings > Metadata > Automatically write changes into XMP**.
+The **Include Develop settings in metadata** checkbox is not required.
 
-## 3. Run PhotoRoom
+## 3. Try one photo, then run the batch
 
-In Terminal, go to your PhotoRoom folder. Replace the example paths below with
-your own folder paths:
+In Terminal, open your PhotoRoom folder. Replace the example paths with yours:
 
 ```bash
 cd "/path/to/PhotoRoom"
 ```
 
-**First, check one photo without making changes.** This previews the filename
-pairing; it does not evaluate the match or require Lightroom.
+**Check one filename pairing without making edits:**
 
 ```bash
 python3 photoroom.py --orig "/path/to/orig" --edit "/path/to/edit" --dry-run --limit 1
 ```
 
-**Next, match one photo.** With Lightroom open and the plug-in enabled, run:
+**Match one photo:** keep Lightroom open with the plug-in enabled.
 
 ```bash
 python3 photoroom.py --orig "/path/to/orig" --edit "/path/to/edit" --limit 1
 ```
 
-Review that photo in Lightroom and its comparison preview before continuing.
-
-**Then, match the full batch:**
+Review the photo in Lightroom and the comparison preview saved in `edit`.
+When you’re happy with the workflow, **run the full batch:**
 
 ```bash
 python3 photoroom.py --orig "/path/to/orig" --edit "/path/to/edit"
 ```
 
-PhotoRoom skips completed photos, including the one you just tested, then shows
-matching progress and estimated time remaining.
+Completed photos are skipped. Progress shows elapsed time and estimated time
+remaining. Avoid manual edits in Lightroom while matching runs.
 
-## 4. Review the results
+## 4. Review and finish
 
-**Your matched edits are already in Lightroom’s catalog.** You do not need to
-use “Read Metadata from File.” PhotoRoom does not write to your originals or
-require Lightroom’s “Include Develop settings in metadata” checkbox.
+**Results are already applied in Lightroom.** Do not use **Read Metadata from
+File** to load them.
 
-Beside each edited TIFF, PhotoRoom saves:
+Beside each edited TIFF, PhotoRoom saves a **`.match-preview.jpg`** comparison
+and an **`.xmp`** record of the matched controls. The XMP marks the photo as
+completed; it is not a full backup of your Lightroom edits.
 
-- **`.match-preview.jpg`** — a comparison of the starting image, Apple Photos
-  edit, and best match.
-- **`.xmp`** — a record of the matched controls that also marks the photo as
-  completed. This is not a full backup of your Lightroom edits.
+The final summary repeats any warnings and errors:
 
-The final summary lists completed photos and repeats any warnings or failures:
+- **SAVED:** completed.
+- **WARNING:** best available match saved; review it.
+- **FAILED:** did not complete; check the error message.
 
-- **SAVED:** matching completed.
-- **WARNING:** the closest result was saved, but needs review.
-- **FAILED:** matching could not complete; check the accompanying message.
+**To retry one photo**, delete its `.xmp` from `edit` and rerun the command.
+Add **`--overwrite`** to redo the whole batch. Add **`--virtual-copies`** to work
+on Lightroom virtual copies, or **`--prefer raw`** when RAW and JPEG originals
+share a filename.
 
-Lightroom can also write metadata itself. If you want originals to remain
-untouched, turn off **Catalog Settings > Metadata > Automatically write changes
-into XMP**.
+Matching stops when Python finishes. To interrupt a run, press **Ctrl+C** in
+Terminal. **After migration, disable PhotoRoom in File > Plug-in Manager.**
 
-## Run again
+## Listener controls
 
-Run the same command whenever you’re ready. Completed photos are skipped.
-**To redo one photo, delete its `.xmp` from `edit`**, then run again.
-Its preview will be replaced automatically.
+Normally, no manual controls are needed. Under **Library > Plug-in Extras**:
 
-Add an option to the command when needed:
+- **PhotoRoom: show listener status** displays its current state.
+- **PhotoRoom: start listener** starts it if needed and shows feedback.
+- **PhotoRoom: stop listener** requests a stop after the current operation.
 
-| Option | What it does |
-| --- | --- |
-| `--limit 1` | Try one photo that still needs matching |
-| `--overwrite` | Redo all photos, including completed ones |
-| `--virtual-copies` | Apply matches to virtual copies in Lightroom |
-| `--prefer raw` | Use the RAW when a RAW and JPEG share the same name |
-
-Matching stops automatically when Python finishes. If Python crashes, the plug-in
-cleans up after about 30 seconds, once any current Lightroom operation finishes.
-Completed matches are kept; unfinished edits on originals are restored.
-
-## Wrapping up
-**After migration, disable PhotoRoom in File > Plug-in Manager.** While enabled,
-it checks for a new run every two seconds without showing an idle progress bar.
-You can also stop a Python run with **Ctrl+C** in Terminal.
-
-For manual control, use **Library > Plug-in Extras**:
-
-- **PhotoRoom: show listener status** tells you whether it is ready, matching,
-  starting, cleaning up, or stopping/stopped.
-- **PhotoRoom: start listener** starts it if needed and shows its current status.
-- **PhotoRoom: stop listener** requests a stop and confirms it. It may need to
-  finish the current operation first; completed matches are kept.
-
-After manually stopping the listener, choose **start listener** before the next
-Python run, or disable and re-enable the plug-in. These commands are optional;
-normal runs start and finish automatically.
-
-If you move the PhotoRoom folder, stop Python and disable the plug-in first,
-then add the plug-in again from its new location.
+After manually stopping it, choose **start listener** or disable and re-enable
+the plug-in before running Python again.
 
 Free for personal, noncommercial use only. Business or professional use requires
 written permission. See [LICENSE](LICENSE).
